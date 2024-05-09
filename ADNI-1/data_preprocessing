@@ -1,0 +1,138 @@
+from __future__ import division
+from itertools import combinations_with_replacement
+import numpy as np
+import math
+import sys
+
+def randomize_data(X_data, y_data, seed=None):
+    if seed:
+        np.random.seed(seed)
+    idx = np.arange(X_data.shape[0])
+    np.random.shuffle(idx)
+    return X_data[idx], y_data[idx]
+
+def iterate_batches(X_data, y_data=None, batch_size=64):
+    n_samples = X_data.shape[0]
+    for i in np.arange(0, n_samples, batch_size):
+        begin, end = i, min(i + batch_size, n_samples)
+        if y_data is not None:
+            yield X_data[begin:end], y_data[begin:end]
+        else:
+            yield X_data[begin:end]
+
+def split_on_feature(X_data, feature_index, threshold):
+    split_func = None
+    if isinstance(threshold, int) or isinstance(threshold, float):
+        split_func = lambda sample: sample[feature_index] >= threshold
+    else:
+        split_func = lambda sample: sample[feature_index] == threshold
+
+    X_1 = np.array([sample for sample in X_data if split_func(sample)])
+    X_2 = np.array([sample for sample in X_data if not split_func(sample)])
+
+    return np.array([X_1, X_2])
+
+def generate_polynomial_features(X_data, degree):
+    n_samples, n_features = np.shape(X_data)
+
+    def index_combinations():
+        combs = [combinations_with_replacement(range(n_features), i) for i in range(0, degree + 1)]
+        flat_combs = [item for sublist in combs for item in sublist]
+        return flat_combs
+
+    combinations = index_combinations()
+    n_output_features = len(combinations)
+    X_new = np.empty((n_samples, n_output_features))
+
+    for i, index_combs in enumerate(combinations):
+        X_new[:, i] = np.prod(X_data[:, index_combs], axis=1)
+
+    return X_new
+
+def create_random_subsets(X_data, y_data, n_subsets, replacements=True):
+    n_samples = np.shape(X_data)[0]
+    X_y = np.concatenate((X_data, y_data.reshape((1, len(y_data))).T), axis=1)
+    np.random.shuffle(X_y)
+    subsets = []
+
+    subsample_size = int(n_samples // 2)
+    if replacements:
+        subsample_size = n_samples
+
+    for _ in range(n_subsets):
+        idx = np.random.choice(
+            range(n_samples),
+            size=np.shape(range(subsample_size)),
+            replace=replacements)
+        X_sub = X_y[idx][:, :-1]
+        y_sub = X_y[idx][:, -1]
+        subsets.append([X_sub, y_sub])
+    return subsets
+
+def normalize_data(X_data, axis=-1, order=2):
+    l2 = np.atleast_1d(np.linalg.norm(X_data, order, axis))
+    l2[l2 == 0] = 1
+    return X_data / np.expand_dims(l2, axis)
+
+def standardize_data(X_data):
+    X_std = X_data
+    mean = X_data.mean(axis=0)
+    std = X_data.std(axis=0)
+    for col in range(np.shape(X_data)[1]):
+        if std[col]:
+            X_std[:, col] = (X_std[:, col] - mean[col]) / std[col]
+    return X_std
+
+def split_train_test(X_data, y_data, test_size=0.5, shuffle=True, seed=None):
+    if shuffle:
+        X_data, y_data = randomize_data(X_data, y_data, seed)
+
+    split_i = len(y_data) - int(len(y_data) // (1 / test_size))
+    X_train, X_test = X_data[:split_i], X_data[split_i:]
+    y_train, y_test = y_data[:split_i], y_data[split_i:]
+
+    return X_train, X_test, y_train, y_test
+
+def generate_k_fold_cross_validation_sets(X_data, y_data, k, shuffle=True):
+    if shuffle:
+        X_data, y_data = randomize_data(X_data, y_data)
+
+    n_samples = len(y_data)
+    left_overs = {}
+    n_left_overs = (n_samples % k)
+    if n_left_overs != 0:
+        left_overs["X"] = X_data[-n_left_overs:]
+        left_overs["y"] = y_data[-n_left_overs:]
+        X_data = X_data[:-n_left_overs]
+        y_data = y_data[:-n_left_overs]
+
+    X_split = np.array_split(X_data, k)
+    y_split = np.array_split(y_data, k)
+    sets = []
+    for i in range(k):
+        X_test, y_test = X_split[i], y_split[i]
+        X_train = np.concatenate(X_split[:i] + X_split[i + 1:], axis=0)
+        y_train = np.concatenate(y_split[:i] + y_split[i + 1:], axis=0)
+        sets.append([X_train, X_test, y_train, y_test])
+
+    if n_left_overs != 0:
+        sets[-1][0] = np.concatenate((sets[-1][0], left_overs["X"]), axis=0)
+        sets[-1][2] = np.concatenate((sets[-1][2], left_overs["y"]), axis=0)
+
+    return sets
+
+def encode_categorical(x, n_col=None):
+    if not n_col:
+        n_col = np.amax(x) + 1
+    one_hot = np.zeros((x.shape[0], n_col))
+    one_hot[np.arange(x.shape[0]), x] = 1
+    return one_hot
+
+def decode_one_hot(x):
+    return np.argmax(x, axis=1)
+
+def create_diagonal_matrix(x):
+    m = np.zeros((len(x), len(x)))
+    for i in range(len(m[0])):
+        m[i, i] = x[i]
+    return m
