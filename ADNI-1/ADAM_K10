@@ -7,12 +7,11 @@ from lime import lime_tabular  # Import LIME library
 import seaborn as sns
 
 from neuroevolution1 import Neuroevolution
-from data_manipulation import train_test_split, to_categorical, normalize, k_fold_cross_validation_sets
-from misc import Plot
-from neural_network1 import NeuralNetwork
-from layers import Activation, Dense
-from loss_functions import CrossEntropy
-from optimizers import Adam
+from data_preprocessing import train_test_split, to_categorical, normalize, k_fold_cross_validation_sets
+from create_neural_network import NeuralNetwork
+from architecture import Activation, Dense
+from losses import CrossEntropy
+from optimizer_functions import Adadelta
 from tensorflow.keras.regularizers import L2
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
 
