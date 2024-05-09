@@ -1,0 +1,94 @@
+import numpy as np
+
+class StochasticGradientDescent():
+    def __init__(self, learning_rate=0.01, momentum=0):
+        self.learning_rate = learning_rate
+        self.momentum = momentum
+        self.weight_update = None
+
+    def optimize(self, weights, gradient_wrt_weights):
+        if self.weight_update is None:
+            self.weight_update = np.zeros(np.shape(weights))
+        self.weight_update = self.momentum * self.weight_update + (1 - self.momentum) * gradient_wrt_weights
+        return weights - self.learning_rate * self.weight_update
+
+
+class NesterovAcceleratedGradient():
+    def __init__(self, learning_rate=0.001, momentum=0.4):
+        self.learning_rate = learning_rate
+        self.momentum = momentum
+        self.weight_update = np.array([])
+
+    def optimize(self, weights, gradient_func):
+        approx_future_gradient = np.clip(gradient_func(weights - self.momentum * self.weight_update), -1, 1)
+        if not self.weight_update.any():
+            self.weight_update = np.zeros(np.shape(weights))
+        self.weight_update = self.momentum * self.weight_update + self.learning_rate * approx_future_gradient
+        return weights - self.weight_update
+
+class Adadelta():
+    def __init__(self, rho=0.95, eps=1e-6):
+        self.E_weight_update = None  # Running average of squared parameter updates
+        self.E_gradient = None  # Running average of the squared gradient of weights
+        self.weight_update = None  # Parameter update
+        self.eps = eps
+        self.rho = rho
+
+    def optimize(self, weights, gradient_wrt_weights):
+        if self.weight_update is None:
+            self.weight_update = np.zeros(np.shape(weights))
+            self.E_weight_update = np.zeros(np.shape(weights))
+            self.E_gradient = np.zeros(np.shape(gradient_wrt_weights))
+
+        self.E_gradient = self.rho * self.E_gradient + (1 - self.rho) * np.power(gradient_wrt_weights, 2)
+        RMS_delta_weights = np.sqrt(self.E_weight_update + self.eps)
+        RMS_gradient = np.sqrt(self.E_gradient + self.eps)
+
+        adaptive_learning_rate = RMS_delta_weights / RMS_gradient
+
+        self.weight_update = adaptive_learning_rate * gradient_wrt_weights
+
+        self.E_weight_update = self.rho * self.E_weight_update + (1 - self.rho) * np.power(self.weight_update, 2)
+
+        return weights - self.weight_update
+
+
+class RMSprop():
+    def __init__(self, learning_rate=0.01, rho=0.9):
+        self.learning_rate = learning_rate
+        self.Eg = None  # Running average of the square gradients at weights
+        self.eps = 1e-8
+        self.rho = rho
+
+    def optimize(self, weights, gradient_wrt_weights):
+        if self.Eg is None:
+            self.Eg = np.zeros(np.shape(gradient_wrt_weights))
+
+        self.Eg = self.rho * self.Eg + (1 - self.rho) * np.power(gradient_wrt_weights, 2)
+
+        return weights - self.learning_rate * gradient_wrt_weights / np.sqrt(self.Eg + self.eps)
+
+
+class Adam():
+    def __init__(self, learning_rate=0.001, b1=0.9, b2=0.999):
+        self.learning_rate = learning_rate
+        self.eps = 1e-8
+        self.m = None
+        self.v = None
+        self.b1 = b1
+        self.b2 = b2
+
+    def optimize(self, weights, gradient_wrt_weights):
+        if self.m is None:
+            self.m = np.zeros(np.shape(gradient_wrt_weights))
+            self.v = np.zeros(np.shape(gradient_wrt_weights))
+
+        self.m = self.b1 * self.m + (1 - self.b1) * gradient_wrt_weights
+        self.v = self.b2 * self.v + (1 - self.b2) * np.power(gradient_wrt_weights, 2)
+
+        m_hat = self.m / (1 - self.b1)
+        v_hat = self.v / (1 - self.b2)
+
+        weight_update = self.learning_rate * m_hat / (np.sqrt(v_hat) + self.eps)
+
+        return weights - weight_update
