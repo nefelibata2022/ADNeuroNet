@@ -1,1 +1,93 @@
+from __future__ import print_function, division
+import numpy as np
+import copy
+
+class Neuroevolution():
+    def __init__(self, population_size, mutation_rate, model_creator):
+        self.population_size = population_size
+        self.mutation_rate = mutation_rate
+        self.model_creator = model_creator
+
+    def _create_model(self, identifier):
+        model = self.model_creator(n_inputs=self.input_data.shape[1], n_outputs=self.output_data.shape[1])
+        model.identifier = identifier
+        model.fitness_score = 0
+        model.accuracy_score = 0
+        return model
+
+    def _initialize_population(self):
+        self.population = []
+        for _ in range(self.population_size):
+            model = self._create_model(identifier=np.random.randint(1000))
+            self.population.append(model)
+
+    def _mutate(self, individual, variance=1):
+        for layer in individual.layers:
+            if hasattr(layer, 'W'):
+                mutation_mask = np.random.binomial(1, p=self.mutation_rate, size=layer.W.shape)
+                layer.W += np.random.normal(loc=0, scale=variance, size=layer.W.shape) * mutation_mask
+                mutation_mask = np.random.binomial(1, p=self.mutation_rate, size=layer.w0.shape)
+                layer.w0 += np.random.normal(loc=0, scale=variance, size=layer.w0.shape) * mutation_mask
+        return individual
+
+    def _inherit_weights(self, child, parent):
+        for i in range(len(child.layers)):
+            if hasattr(child.layers[i], 'W'):
+                child.layers[i].W = parent.layers[i].W.copy()
+                child.layers[i].w0 = parent.layers[i].w0.copy()
+
+    def _crossover(self, parent1, parent2):
+        child1 = self._create_model(identifier=parent1.identifier + 1)
+        self._inherit_weights(child1, parent1)
+        child2 = self._create_model(identifier=parent2.identifier + 1)
+        self._inherit_weights(child2, parent2)
+
+        for i in range(len(child1.layers)):
+            if hasattr(child1.layers[i], 'W'):
+                num_neurons = child1.layers[i].W.shape[1]
+                cutoff = np.random.randint(0, num_neurons)
+                child1.layers[i].W[:, cutoff:] = parent2.layers[i].W[:, cutoff:].copy()
+                child1.layers[i].w0[:, cutoff:] = parent2.layers[i].w0[:, cutoff:].copy()
+                child2.layers[i].W[:, cutoff:] = parent1.layers[i].W[:, cutoff:].copy()
+                child2.layers[i].w0[:, cutoff:] = parent1.layers[i].w0[:, cutoff:].copy()
+
+        return child1, child2
+
+    def _calculate_fitness(self):
+        for individual in self.population:
+            loss, acc = individual.test_on_batch(self.input_data, self.output_data)
+            individual.fitness_score = 1 / (loss + 1e-8)
+            individual.accuracy_score = acc
+
+    def evolve(self, input_data, output_data, num_generations):
+        self.input_data, self.output_data = input_data, output_data
+        self._initialize_population()
+
+        num_winners = int(self.population_size * 0.4)
+        num_parents = self.population_size - num_winners
+
+        for epoch in range(num_generations):
+            self._calculate_fitness()
+
+            sorted_indices = np.argsort([model.fitness_score for model in self.population])[::-1]
+            self.population = [self.population[i] for i in sorted_indices]
+
+            fittest_individual = self.population[0]
+            print("[%d Best Individual - Fitness: %.5f, Accuracy: %.1f%%]" % (epoch,
+                                                                              fittest_individual.fitness_score,
+                                                                              float(100 * fittest_individual.accuracy_score)))
+
+            next_population = [self.population[i] for i in range(num_winners)]
+
+            total_fitness = np.sum([model.fitness_score for model in self.population])
+            parent_probabilities = [model.fitness_score / total_fitness for model in self.population]
+            parents = np.random.choice(self.population, size=num_parents, p=parent_probabilities, replace=False)
+
+            for i in np.arange(0, len(parents), 2):
+                child1, child2 = self._crossover(parents[i], parents[i + 1])
+                next_population += [self._mutate(child1), self._mutate(child2)]
+
+            self.population = next_population
+
+        return fittest_individual
 
