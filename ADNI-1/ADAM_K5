@@ -17,7 +17,7 @@ from tensorflow.keras.regularizers import L2
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
 
 def main():
-    data = pd.read_csv('D:/mlfromscratch/utils/ADNI1_bl_remove_all_missing.csv')
+    data = pd.read_csv('ADNI1_bl_remove_all_missing.csv')
     X = data.iloc[:, :-1].values
     X = normalize(X)
     y = data.iloc[:, -1].values
