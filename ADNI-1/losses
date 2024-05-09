@@ -1,6 +1,6 @@
 from __future__ import division
 import numpy as np
-from data_utilities import calculate_accuracy as accuracy_score
+from data_utilities import calculate_accuracy as accuracy
 from activations import SigmoidActivation as Sigmoid
 
 class LossFunction(object):
