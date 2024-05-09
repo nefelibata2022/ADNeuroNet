@@ -1,1 +1,222 @@
+from __future__ import print_function
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+import shap  # Import SHAP library
+from lime import lime_tabular  # Import LIME library
+import seaborn as sns
+
+from neuroevolution1 import Neuroevolution
+from data_manipulation import train_test_split, to_categorical, normalize, k_fold_cross_validation_sets
+from misc import Plot
+from neural_network1 import NeuralNetwork
+from layers import Activation, Dense
+from loss_functions import CrossEntropy
+from optimizers import StochasticGradientDescent
+from tensorflow.keras.regularizers import L2
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+
+def main():
+    data = pd.read_csv('ADNI1_bl_remove_all_missing.csv')
+    X = data.iloc[:, :-1].values
+    X = normalize(X)
+    y = data.iloc[:, -1].values
+    y = to_categorical(y.astype("int"))
+    regularizer = L2(l2=0.001)
+
+    print("Column names of X:")
+    features = (data.columns[:-1])  # Print column names of X excluding the last column
+    print(features)
+
+    print("\nColumn name of y:")
+    print(data.columns[-1])  # Print column name of y
+
+    def model_builder(n_inputs, n_outputs):
+        model = NeuralNetwork(optimizer=StochasticGradientDescent(), loss=CrossEntropy)
+        model.add(Dense(16, input_shape=(n_inputs,), kernel_regularizer=regularizer))
+        model.add(Activation('relu'))
+        model.add(Dense(n_outputs))
+        model.add(Activation('softmax'))
+        return model
+
+    print("")
+    model_builder(n_inputs=X.shape[1], n_outputs=y.shape[1]).summary()
+
+    population_size = 100
+    n_generations = 3000
+    mutation_rate = 0.01
+
+    print("Population Size: %d" % population_size)
+    print("Generations: %d" % n_generations)
+    print("Mutation Rate: %.2f" % mutation_rate)
+    print("")
+
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, seed=1)
+
+    # Perform k-fold cross-validation
+    k = 10  # Number of folds
+    k_fold_sets = k_fold_cross_validation_sets(X_train, y_train, k)
+
+    train_losses_all = []
+    valid_losses_all = []
+    test_losses_all = []
+    train_accuracies = []
+    valid_accuracies = []
+    test_accuracies = []
+
+    for fold, (X_train_fold, X_valid_fold, y_train_fold, y_valid_fold) in enumerate(k_fold_sets):
+        model = Neuroevolution(population_size=population_size,
+                               mutation_rate=mutation_rate,
+                               model_builder=model_builder)
+
+        model = model.evolve(X_train_fold, y_train_fold, n_generations=n_generations)
+
+        train_loss, train_accuracy = model.test_on_batch(X_train_fold, y_train_fold)
+        train_accuracies.append(train_accuracy)
+        train_losses_all.append(train_loss)
+
+        valid_loss, valid_accuracy = model.test_on_batch(X_valid_fold, y_valid_fold)
+        valid_accuracies.append(valid_accuracy)
+        valid_losses_all.append(valid_loss)
+
+        #test_loss, test_accuracy = model.test_on_batch(X_test, y_test)
+        #test_accuracies.append(test_accuracy)
+        #test_losses_all.append(test_loss)
+
+        print("Fold %d - Training Accuracy: %.2f%% - Validation Accuracy: %.2f%%" % (
+            fold + 1, train_accuracy * 100, valid_accuracy * 100))
+
+    print("Average Training Accuracy: %.2f%%" % (np.mean(train_accuracies) * 100))
+    print("Average Validation Accuracy: %.2f%%" % (np.mean(valid_accuracies) * 100))
+    #print("Average Test Accuracy: %.2f%%" % (np.mean(test_accuracies) * 100))
+
+    # Test Set Evaluation
+    test_loss, test_accuracy = model.test_on_batch(X_test, y_test)
+    print("Test Accuracy: %.2f%%" % (test_accuracy * 100))
+
+    # Precision, Recall, F1-score
+    y_pred_test = model.predict(X_test)
+    y_test_classes = np.argmax(y_test, axis=1)
+    y_pred_classes = np.argmax(y_pred_test, axis=1)
+    print("Classification Report:")
+    print(classification_report(y_test_classes, y_pred_classes))
+
+    # Confusion Matrix
+    print("Confusion Matrix:")
+    print(confusion_matrix(y_test_classes, y_pred_classes))
+
+    # ROC AUC Score
+    auc_score = roc_auc_score(y_test, y_pred_test)
+    print("ROC AUC Score:", auc_score)
+
+    # Plot Training, Validation, and Test Accuracies
+    plt.plot(train_accuracies, label='Training Accuracy')
+    plt.plot(valid_accuracies, label='Validation Accuracy')
+    plt.title('Training vs Validation Accuracy: SGD')
+    plt.xlabel('Fold')
+    plt.ylabel('Accuracy')
+    plt.legend()
+    plt.show()
+
+    # Plot Training, Validation, and Test Losses
+    plt.plot(train_losses_all, label='Training Loss')
+    plt.plot(valid_losses_all, label='Validation Loss')
+    plt.title('Training vs Validation Loss: SGD')
+    plt.xlabel('Fold')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.show()
+
+    # Predict probabilities for the test set
+    y_pred_prob = model.predict_proba(X_test)
+
+    # Plot histogram of predicted probabilities
+    plt.hist(y_pred_prob, bins=10, edgecolor='black')
+    plt.xlabel('Predicted Probability')
+    plt.ylabel('Frequency')
+    plt.title('Distribution of Predicted Probabilities: SGD')
+    plt.show()
+
+    # Alternatively, plot density plot of predicted probabilities
+    sns.kdeplot(y_pred_prob[:, 1], fill=True)
+    plt.xlabel('Predicted Probability')
+    plt.ylabel('Density')
+    plt.title('Distribution of Predicted Probabilities: SGD')
+    plt.show()
+
+    """# Box Plot of Cross-Validation Accuracies
+    plt.boxplot([train_accuracies, valid_accuracies], labels=['Training', 'Validation'])
+    plt.title('Cross-Validation Accuracies')
+    plt.ylabel('Accuracy')
+    plt.show()"""
+
+    # Reduce dimension to 2D using PCA and plot the results
+    y_pred = np.argmax(model.predict(X_test), axis=1)
+    Plot().plot_in_2d(X_test, y_pred, title="Evolutionary Evolved Neural Network", accuracy=test_accuracy,
+                      legend_labels=range(y.shape[1]))
+
+"""
+    # Use SHAP to explain the model's predictions
+    explainer = shap.KernelExplainer(model.predict, X_train_fold)
+    shap_values = explainer.shap_values(X_test)
+
+    # Calculate feature importance based on SHAP values
+    feature_importance = np.abs(shap_values).mean(axis=0)  # Calculate mean absolute SHAP values across all instances
+
+    print(feature_importance)
+
+    # 1. Reshape feature importance array to match the shape of the original data
+    n_targets = 3  # Number of target variables
+    n_features = len(features)
+    feature_importance = feature_importance.reshape(n_features, n_targets)
+
+    # Convert feature importance to percentages
+    feature_importance_percentages = (feature_importance * 100)
+
+    # Plot
+    plt.figure(figsize=(10, 6))
+    for i in range(n_targets):
+        plt.barh(features, feature_importance_percentages[:, i], label=f'Target Variable {i + 1}')
+
+    plt.xlabel('Feature Importance (%)')
+    plt.ylabel('Feature')
+    plt.title('Feature Importance for Three Target Variables')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    #####
+
+    # 2. Example feature importance array (replace this with your actual feature importance array)
+    feature_importance = np.random.rand(14, 3)
+
+    # Plot feature importance for each target variable
+    num_targets = feature_importance.shape[1]
+    fig, axes = plt.subplots(num_targets, 1, figsize=(10, 6 * num_targets))
+
+    for i in range(num_targets):
+        axes[i].barh(range(len(feature_importance)), feature_importance[:, i])
+        axes[i].set_xlabel('Feature Importance')
+        axes[i].set_ylabel('Feature Index')
+        axes[i].set_title(f'Feature Importance for Target Variable {i + 1}')
+
+    plt.tight_layout()
+    plt.show()
+
+    # 3. Create a stacked bar plot for all target variables
+    plt.figure(figsize=(10, 6))
+    for i in range(feature_importance.shape[1]):
+        plt.barh(range(len(feature_importance)), feature_importance[:, i], label=f'Target Variable {i + 1}')
+
+    plt.xlabel('Feature Importance')
+    plt.ylabel('Feature Index')
+    plt.title('Feature Importance for All Target Variables')
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+"""
+
+
+if __name__ == "__main__":
+    main()
 
